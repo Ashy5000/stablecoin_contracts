@@ -11,7 +11,15 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 
 contract StablePair is BaseHook {
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+    IPoolManager poolManager;
+    uint256 calibrationStrength;
+    uint256 targetPrice;
+
+    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
+        poolManager = _poolManager;
+        calibrationStrength = 10;
+        targetPrice = 10**18;
+    }
 
     function getHookPermissions() {
         return Hooks.Permissions({
@@ -31,23 +39,45 @@ contract StablePair is BaseHook {
             afterRemoveLiquidityReturnDelta: false
         });
     }
-
-    function getStablecoinPrice() returns (uint256) {}
-    function calculateBuyFee() returns (uint256) {}
-    function calculateSellFee() returns (uint256) {}
+    function basePrice() returns (uint256) {}
+    function getStablecoinPrice() returns (uint256) {
+        uint160 sqrtPriceX96 = poolManager.getSlot0(key.toId()).sqrtPriceX96;
+        uint160 basePrice = ((sqrtPriceX96 / 2**96)**2);
+        uint160 stablecoinPriceBase = (1 / basePrice);
+        return uint256(stablecoinPriceBase) * basePrice;
+    }
+    function calculateBuyFee(uint256 inputAmout) returns (uint256) {
+        uint256 stablecoinPrice = getStablecoinPrice();
+        if(stablecoinPrice > targetPrice) {
+            uint256 precentReceived = 100 - (((stablecoinPrice * 100) / targetPrice) - 100) * calibrationStrength;
+            return (inputAmount * precentReceived) / 100;
+        } else {
+            return inputAmount;
+        }
+    }
+    function calculateSellFee() returns (uint256) {
+        uint256 stablecoinPrice = getStablecoinprice();
+        if(stablecoinPrice < targetPrice) {
+            uint256 precentReceived = (100 - ((stablecoinPrice * 100) / targetPrice)) * calibrationStrength;
+            return (inputAmount * precentReceived) / 100;
+        } else {
+            return inputAmount;
+        }
+    }
 
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata) {
         require(params.amountSpecified < 0);
+        uint256 inputAmount = uint256(-params.amountSpecified);
         // Take fee
         if(params.zeroForOne) {
             // Buying
-            uint256 amountTaken = calculateBuyFee();
+            uint256 amountTaken = calculateBuyFee(inputAmount);
             poolManager.mint(address(this), key.currency0.toId(), amountTaken);
             poolManager.donate(key, amountTaken, 0, new bytes(0));
             return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(amountTaken.toInt128(), 0), 0);
         } else {
             // Selling
-            uint256 amountTaken = calculateSellFee();
+            uint256 amountTaken = calculateSellFee(inputAmount);
             poolManager.mint(address(this), key.currency1.toId(), amountTaken);
             poolManager.donate(key, 0, amountTaken, new bytes(0));
             return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(amountTaken.toInt128(), 0), 0);
