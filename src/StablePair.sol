@@ -10,6 +10,8 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {IChronicle} from "./IChronicle.sol";
+import {ISelfKisser} from "./ISelfKisser.sol";
 
 contract StablePair is BaseHook {
     using StateLibrary for IPoolManager;
@@ -17,9 +19,21 @@ contract StablePair is BaseHook {
     uint256 calibrationStrength;
     uint256 targetPrice;
 
+    address owner;
+
+    ISelfKisser public selfKisser = ISelfKisser(address(0xCce64A8127c051E784ba7D84af86B2e6F53d1a09));
+    mapping(PoolId => IChronicle) public oracles;
+
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         calibrationStrength = 10;
         targetPrice = 10**18;
+        owner = msg.sender;
+    }
+
+    function addOracle(PoolId key, address oracle) public {
+        require(owner == msg.sender);
+        selfKisser.selfKiss(oracle);
+        oracles[key] = IChronicle(oracle);
     }
 
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
@@ -40,12 +54,14 @@ contract StablePair is BaseHook {
             afterRemoveLiquidityReturnDelta: false
         });
     }
-    function basePrice() public view returns (uint256) {}
+    function basePrice(PoolId id) public view returns (uint256) {
+        return oracles[id].read();
+    }
     function getStablecoinPrice(PoolKey calldata key) public view returns (uint256) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
         uint160 basePriceStablecoin = ((sqrtPriceX96 / 2**96)**2);
         uint160 stablecoinPriceBase = (1 / basePriceStablecoin);
-        return uint256(stablecoinPriceBase) * basePrice();
+        return uint256(stablecoinPriceBase) * basePrice(key.toId());
     }
     function calculateBuyFee(uint256 inputAmount, PoolKey calldata key) public view returns (uint256) {
         uint256 stablecoinPrice = getStablecoinPrice(key);
