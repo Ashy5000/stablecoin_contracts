@@ -10,6 +10,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {LPFeeLibrary} from "@uniswap/v4-core/src/libraries/LPFeeLibrary.sol";
 import {IChronicle} from "./IChronicle.sol";
 import {ISelfKisser} from "./ISelfKisser.sol";
 
@@ -21,8 +22,9 @@ contract StablePair is BaseHook {
 
     address owner;
 
-    ISelfKisser public selfKisser = ISelfKisser(address(0xCce64A8127c051E784ba7D84af86B2e6F53d1a09));
-    mapping(PoolId => IChronicle) public oracles;
+    ISelfKisser public selfKisser = ISelfKisser(address(0x0Dcc19657007713483A5cA76e6A7bbe5f56EA37d));
+    // mapping(PoolId => IChronicle) public oracles;
+    IChronicle public oracle;
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         calibrationStrength = 10;
@@ -30,10 +32,14 @@ contract StablePair is BaseHook {
         owner = msg.sender;
     }
 
-    function addOracle(PoolId key, address oracle) public {
-        require(owner == msg.sender);
-        selfKisser.selfKiss(oracle);
-        oracles[key] = IChronicle(oracle);
+    // function addOracle(PoolId key, address oracle) public {
+    //     selfKisser.selfKiss(oracle);
+    //     oracles[key] = IChronicle(oracle);
+    // }
+
+    function setOracle(address oracleAddress) public {
+        selfKisser.selfKiss(oracleAddress);
+        oracle = IChronicle(oracleAddress);
     }
 
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
@@ -44,7 +50,7 @@ contract StablePair is BaseHook {
             afterAddLiquidity: false,
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
-            beforeSwap: false,
+            beforeSwap: true,
             afterSwap: false,
             beforeDonate: false,
             afterDonate: false,
@@ -54,50 +60,58 @@ contract StablePair is BaseHook {
             afterRemoveLiquidityReturnDelta: false
         });
     }
-    function basePrice(PoolId id) public view returns (uint256) {
-        return oracles[id].read();
+    // function basePrice(PoolId id) public view returns (uint256) {
+    function basePrice() public view returns (uint256) {
+        return oracle.read();
     }
     function getStablecoinPrice(PoolKey calldata key) public view returns (uint256) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
         uint160 basePriceStablecoin = ((sqrtPriceX96 / 2**96)**2);
         uint160 stablecoinPriceBase = (1 / basePriceStablecoin);
-        return uint256(stablecoinPriceBase) * basePrice(key.toId());
+        return uint256(stablecoinPriceBase) * basePrice();
     }
-    function calculateBuyFee(uint256 inputAmount, PoolKey calldata key) public view returns (uint256) {
+    function calculateBuyFee(PoolKey calldata key) public view returns (uint256) {
         uint256 stablecoinPrice = getStablecoinPrice(key);
         if(stablecoinPrice > targetPrice) {
-            uint256 precentReceived = 100 - (((stablecoinPrice * 100) / targetPrice) - 100) * calibrationStrength;
-            return (inputAmount * precentReceived) / 100;
+            uint256 feePrecentage = (((stablecoinPrice * 100) / targetPrice) - 100) * calibrationStrength;
+            uint256 precentReceived = 0;
+            if(feePrecentage >= 50) {
+                precentReceived = 50; // Hard limit at 50% fee
+            } else {
+                precentReceived = 100 - feePrecentage;
+            }
+            return precentReceived * 10000;
         } else {
-            return inputAmount;
+            return 0;
         }
     }
-    function calculateSellFee(uint256 inputAmount, PoolKey calldata key) public view returns (uint256) {
+    function calculateSellFee(PoolKey calldata key) public view returns (uint256) {
         uint256 stablecoinPrice = getStablecoinPrice(key);
         if(stablecoinPrice < targetPrice) {
-            uint256 precentReceived = (100 - ((stablecoinPrice * 100) / targetPrice)) * calibrationStrength;
-            return (inputAmount * precentReceived) / 100;
+            uint256 feePrecentage = ((stablecoinPrice * 100) / targetPrice) * calibrationStrength;
+            uint256 precentReceived = 0;
+            if(feePrecentage >= 50) {
+                precentReceived = 50; // Hard limit at 50% fee
+            } else {
+                precentReceived = 100 - feePrecentage;
+            }
+            return precentReceived * 10000;
         } else {
-            return inputAmount;
+            return 0;
         }
     }
 
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata) external override returns (bytes4, BeforeSwapDelta, uint24) {
         require(params.amountSpecified < 0);
-        uint256 inputAmount = uint256(-params.amountSpecified);
         // Take fee
         if(params.zeroForOne) {
             // Buying
-            uint256 amountTaken = calculateBuyFee(inputAmount, key);
-            poolManager.mint(address(this), key.currency0.toId(), amountTaken);
-            poolManager.donate(key, amountTaken, 0, new bytes(0));
-            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int(amountTaken)), 0), 0);
+            uint256 fee = calculateBuyFee(key);
+            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(0, 0), uint24(fee + 500) | LPFeeLibrary.OVERRIDE_FEE_FLAG);
         } else {
             // Selling
-            uint256 amountTaken = calculateSellFee(inputAmount, key);
-            poolManager.mint(address(this), key.currency1.toId(), amountTaken);
-            poolManager.donate(key, 0, amountTaken, new bytes(0));
-            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(int128(int(amountTaken)), 0), 0);
+            uint256 fee = calculateSellFee(key);
+            return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(0, 0), uint24(fee + 500) | LPFeeLibrary.OVERRIDE_FEE_FLAG);
         }
     }
 }
