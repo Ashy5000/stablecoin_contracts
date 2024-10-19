@@ -34,6 +34,8 @@ contract CounterTest is Test, Fixtures {
     int24 tickLower;
     int24 tickUpper;
 
+    event PriceChange(uint256 price);
+
     function setUp() public {
         // creates the pool manager, utility routers, and test tokens
         deployFreshManagerAndRouters();
@@ -51,14 +53,14 @@ contract CounterTest is Test, Fixtures {
         deployCodeTo("StablePair.sol:StablePair", constructorArgs, flags);
         hook = StablePair(flags);
 
-        // Initialize oracle
-        // hook.addOracle(poolId, address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
-        hook.setOracle(address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
 
         // Create the pool
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
         poolId = key.toId();
         manager.initialize(key, SQRT_PRICE_1_1);
+
+        // Initialize oracle
+        hook.addOracle(poolId, address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
 
         // Provide full-range liquidity to the pool
         tickLower = TickMath.minUsableTick(key.tickSpacing);
@@ -86,11 +88,13 @@ contract CounterTest is Test, Fixtures {
         );
     }
 
-    function testCounterHooks() public {
+    function testSwap() public {
         // positions were created in setup()
         // Perform a test swap //
         bool zeroForOne = true;
         int256 amountSpecified = -1e18; // negative number indicates exact input swap!
+        vm.expectEmit(false, false, false, false, address(hook));
+        emit PriceChange(0);
         BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
         // ------------------- //
         assertEq(int256(swapDelta.amount0()), amountSpecified);

@@ -23,8 +23,9 @@ contract StablePair is BaseHook {
     address owner;
 
     ISelfKisser public selfKisser = ISelfKisser(address(0x0Dcc19657007713483A5cA76e6A7bbe5f56EA37d));
-    // mapping(PoolId => IChronicle) public oracles;
-    IChronicle public oracle;
+    mapping(PoolId => IChronicle) public oracles;
+
+    event PriceChange(uint256 price);
 
     constructor(IPoolManager _poolManager) BaseHook(_poolManager) {
         calibrationStrength = 10;
@@ -32,14 +33,9 @@ contract StablePair is BaseHook {
         owner = msg.sender;
     }
 
-    // function addOracle(PoolId key, address oracle) public {
-    //     selfKisser.selfKiss(oracle);
-    //     oracles[key] = IChronicle(oracle);
-    // }
-
-    function setOracle(address oracleAddress) public {
-        selfKisser.selfKiss(oracleAddress);
-        oracle = IChronicle(oracleAddress);
+    function addOracle(PoolId key, address oracle) public {
+        selfKisser.selfKiss(oracle);
+        oracles[key] = IChronicle(oracle);
     }
 
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
@@ -60,17 +56,21 @@ contract StablePair is BaseHook {
             afterRemoveLiquidityReturnDelta: false
         });
     }
-    // function basePrice(PoolId id) public view returns (uint256) {
-    function basePrice() public view returns (uint256) {
-        return oracle.read();
+
+    function basePrice(PoolId id) public view returns (uint256) {
+        return oracles[id].read();
     }
-    function getStablecoinPrice(PoolKey calldata key) public view returns (uint256) {
+
+    function getStablecoinPrice(PoolKey calldata key) public returns (uint256) {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
         uint160 basePriceStablecoin = ((sqrtPriceX96 / 2**96)**2);
         uint160 stablecoinPriceBase = (1 / basePriceStablecoin);
-        return uint256(stablecoinPriceBase) * basePrice();
+        uint256 price = uint256(stablecoinPriceBase) * basePrice(key.toId());
+        emit PriceChange(price);
+        return price;
     }
-    function calculateBuyFee(PoolKey calldata key) public view returns (uint256) {
+
+    function calculateBuyFee(PoolKey calldata key) public returns (uint256) {
         uint256 stablecoinPrice = getStablecoinPrice(key);
         if(stablecoinPrice > targetPrice) {
             uint256 feePrecentage = (((stablecoinPrice * 100) / targetPrice) - 100) * calibrationStrength;
@@ -85,7 +85,8 @@ contract StablePair is BaseHook {
             return 0;
         }
     }
-    function calculateSellFee(PoolKey calldata key) public view returns (uint256) {
+
+    function calculateSellFee(PoolKey calldata key) public returns (uint256) {
         uint256 stablecoinPrice = getStablecoinPrice(key);
         if(stablecoinPrice < targetPrice) {
             uint256 feePrecentage = ((stablecoinPrice * 100) / targetPrice) * calibrationStrength;
