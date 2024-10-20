@@ -35,7 +35,9 @@ contract StablePairScript is Script, DeployPermit2 {
     function setUp() public {}
 
     function run() public {
+        vm.startBroadcast();
         IPoolManager manager = deployPoolManager();
+        vm.stopBroadcast();
 
         // hook contracts must have specific flags encoded in the address
         uint160 permissions = uint160(
@@ -127,52 +129,52 @@ contract StablePairScript is Script, DeployPermit2 {
         console.logAddress(address(manager));
         manager.initialize(poolKey, Constants.SQRT_PRICE_1_1);
 
-        // // Initialize the oracle
-        // StablePair pair = StablePair(hook);
-        // // pair.setOracle(address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
+        // Initialize the oracle
+        StablePair pair = StablePair(hook);
+        // pair.setOracle(address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
 
-        // // approve the tokens to the routers
-        // token0.approve(address(lpRouter), type(uint256).max);
-        // token1.approve(address(lpRouter), type(uint256).max);
-        // token0.approve(address(swapRouter), type(uint256).max);
-        // token1.approve(address(swapRouter), type(uint256).max);
+        // approve the tokens to the routers
+        token0.approve(address(lpRouter), type(uint256).max);
+        token1.approve(address(lpRouter), type(uint256).max);
+        token0.approve(address(swapRouter), type(uint256).max);
+        token1.approve(address(swapRouter), type(uint256).max);
 
-        // approvePosmCurrency(posm, Currency.wrap(address(token0)));
-        // approvePosmCurrency(posm, Currency.wrap(address(token1)));
+        approvePosmCurrency(posm, Currency.wrap(address(token0)));
+        approvePosmCurrency(posm, Currency.wrap(address(token1)));
 
         // add full range liquidity to the pool
-        // lpRouter.modifyLiquidity(
-        //     poolKey,
-        //     IPoolManager.ModifyLiquidityParams(
-        //         TickMath.minUsableTick(tickSpacing), TickMath.maxUsableTick(tickSpacing), 100 ether, 0x00
-        //     ),
-        //     ZERO_BYTES
-        // );
+        lpRouter.modifyLiquidity(
+            poolKey,
+            IPoolManager.ModifyLiquidityParams(
+                TickMath.minUsableTick(tickSpacing), TickMath.maxUsableTick(tickSpacing), 100 ether, 0x00
+            ),
+            ZERO_BYTES
+        );
 
-        // posm.mint(
-        //     poolKey,
-        //     TickMath.minUsableTick(tickSpacing),
-        //     TickMath.maxUsableTick(tickSpacing),
-        //     100e18,
-        //     10_000e18,
-        //     10_000e18,
-        //     msg.sender,
-        //     block.timestamp + 300,
-        //     ZERO_BYTES
-        // );
+        posm.mint(
+            poolKey,
+            TickMath.minUsableTick(tickSpacing),
+            TickMath.maxUsableTick(tickSpacing),
+            100e18,
+            10_000e18,
+            10_000e18,
+            msg.sender,
+            block.timestamp + 300,
+            ZERO_BYTES
+        );
 
-        // pair.addOracle(poolKey.toId(), address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
+        pair.addOracle(poolKey.toId(), address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
 
         // swap some tokens
-        // bool zeroForOne = true;
-        // int256 amountSpecified = -1 ether;
-        // IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-        //     zeroForOne: zeroForOne,
-        //     amountSpecified: amountSpecified,
-        //     sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1 // unlimited impact
-        // });
-        // PoolSwapTest.TestSettings memory testSettings =
-        //     PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
-        // swapRouter.swap(poolKey, params, testSettings, ZERO_BYTES);
+        bool zeroForOne = true;
+        int256 amountSpecified = -1 ether;
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: amountSpecified,
+            sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1 // unlimited impact
+        });
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+        swapRouter.swap(poolKey, params, testSettings, ZERO_BYTES);
     }
 }
