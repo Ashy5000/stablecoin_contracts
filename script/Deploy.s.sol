@@ -16,6 +16,7 @@ import {Constants} from "v4-core/src/../test/utils/Constants.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
 import {StablePair} from "../src/StablePair.sol";
+import {Stablecoin} from "../src/Stablecoin.sol";
 import {HookMiner} from "../test/utils/HookMiner.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 import {PositionManager} from "v4-periphery/src/PositionManager.sol";
@@ -58,7 +59,7 @@ contract StablePairScript is Script, DeployPermit2 {
         // Additional helpers for interacting with the pool
         vm.startBroadcast();
         IPositionManager posm = deployPosm(manager);
-        (PoolModifyLiquidityTest lpRouter, PoolSwapTest swapRouter,) = deployRouters(manager);
+        (PoolModifyLiquidityTest lpRouter, PoolSwapTest swapRouter) = deployRouters(manager);
         vm.stopBroadcast();
 
         // test the lifecycle (create pool, add liquidity, swap)
@@ -76,11 +77,10 @@ contract StablePairScript is Script, DeployPermit2 {
 
     function deployRouters(IPoolManager manager)
         internal
-        returns (PoolModifyLiquidityTest lpRouter, PoolSwapTest swapRouter, PoolDonateTest donateRouter)
+        returns (PoolModifyLiquidityTest lpRouter, PoolSwapTest swapRouter)
     {
-        lpRouter = new PoolModifyLiquidityTest(manager);
-        swapRouter = new PoolSwapTest(manager);
-        donateRouter = new PoolDonateTest(manager);
+        lpRouter = PoolModifyLiquidityTest(address(0x496CD7097f0BDd32774dA3D2F1Ef0adF430b7e81));
+        swapRouter = PoolSwapTest(address(0xe49d2815C231826caB58017e214Bed19fE1c2dD4));
     }
 
     function deployPosm(IPoolManager poolManager) public returns (IPositionManager) {
@@ -96,16 +96,19 @@ contract StablePairScript is Script, DeployPermit2 {
         permit2.approve(Currency.unwrap(currency), address(posm), type(uint160).max, type(uint48).max);
     }
 
-    function deployTokens() internal returns (MockERC20 token0, MockERC20 token1) {
-        // IERC20 tokenA = IERC20(0x88541670E55cC00bEEFD87eB59EDd1b7C511AC9a);
-                MockERC20 tokenA = new MockERC20("MockA", "A", 18);
-        MockERC20 tokenB = new MockERC20("MockB", "B", 18);
+    function deployTokens() internal returns (MockERC20 token0, MockERC20 token1, bool swapped) {
+        IERC20 tokenA = IERC20(0x88541670E55cC00bEEFD87eB59EDd1b7C511AC9a);
+        // MockERC20 tokenA = new MockERC20("MockA", "A", 18);
+        // MockERC20 tokenB = new MockERC20("MockB", "B", 18);
+        IERC20 tokenB = IERC20(address(new Stablecoin()));
         if (uint160(address(tokenA)) < uint160(address(tokenB))) {
-            token0 = tokenA;
-            token1 = tokenB;
+            token0 = MockERC20(address(tokenA));
+            token1 = MockERC20(address(tokenB));
+            swapped = true;
         } else {
-            token0 = tokenB;
-            token1 = tokenA;
+            token0 = MockERC20(address(tokenB));
+            token1 = MockERC20(address(tokenA));
+            swapped = false;
         }
     }
 
@@ -116,9 +119,16 @@ contract StablePairScript is Script, DeployPermit2 {
         PoolModifyLiquidityTest lpRouter,
         PoolSwapTest swapRouter
     ) internal {
-        (MockERC20 token0, MockERC20 token1) = deployTokens();
-        token0.mint(msg.sender, 100_000 ether);
-        token1.mint(msg.sender, 100_000 ether);
+        IERC20 usdc = IERC20(0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8);
+        console.logUint(usdc.balanceOf(msg.sender));
+        (MockERC20 token0, MockERC20 token1, bool swapped) = deployTokens();
+        if(swapped) {
+            usdc.approve(address(token1), 10000000000);
+            Stablecoin(address(token1)).wrap(10000000000);
+        } else {
+            usdc.approve(address(token0), 10000000000);
+            Stablecoin(address(token0)).wrap(10000000000);
+        }
 
         bytes memory ZERO_BYTES = new bytes(0);
 
@@ -146,7 +156,7 @@ contract StablePairScript is Script, DeployPermit2 {
         lpRouter.modifyLiquidity(
             poolKey,
             IPoolManager.ModifyLiquidityParams(
-                TickMath.minUsableTick(tickSpacing), TickMath.maxUsableTick(tickSpacing), 100 ether, 0x00
+                TickMath.minUsableTick(tickSpacing), TickMath.maxUsableTick(tickSpacing), 10000000, 0x00
             ),
             ZERO_BYTES
         );
@@ -155,7 +165,7 @@ contract StablePairScript is Script, DeployPermit2 {
             poolKey,
             TickMath.minUsableTick(tickSpacing),
             TickMath.maxUsableTick(tickSpacing),
-            100e18,
+            10000000,
             10_000e18,
             10_000e18,
             msg.sender,
@@ -167,7 +177,7 @@ contract StablePairScript is Script, DeployPermit2 {
 
         // swap some tokens
         bool zeroForOne = true;
-        int256 amountSpecified = -1 ether;
+        int256 amountSpecified = -10000000;
         IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
             zeroForOne: zeroForOne,
             amountSpecified: amountSpecified,
