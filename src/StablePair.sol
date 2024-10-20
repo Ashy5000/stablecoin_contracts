@@ -22,6 +22,9 @@ contract StablePair is BaseHook {
 
     address owner;
 
+    bool isFlipped;
+    bool isFlippedLocked;
+
     ISelfKisser public selfKisser = ISelfKisser(address(0x0Dcc19657007713483A5cA76e6A7bbe5f56EA37d));
     mapping(PoolId => IChronicle) public oracles;
 
@@ -36,6 +39,12 @@ contract StablePair is BaseHook {
     function addOracle(PoolId key, address oracle) public {
         selfKisser.selfKiss(oracle);
         oracles[key] = IChronicle(oracle);
+    }
+
+    function flipAndLock(bool isFlippedNew) public {
+        require(!isFlippedLocked);
+        isFlipped = isFlippedNew;
+        isFlippedLocked = true;
     }
 
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory) {
@@ -65,7 +74,12 @@ contract StablePair is BaseHook {
         (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(key.toId());
         uint160 basePriceStablecoin = ((sqrtPriceX96 / 2**96)**2);
         uint160 stablecoinPriceBase = (1 / basePriceStablecoin);
-        uint256 price = uint256(stablecoinPriceBase) * basePrice(key.toId());
+        uint256 price = 0;
+        if(isFlipped) {
+            price = uint256(basePriceStablecoin) * basePrice(key.toId());
+        } else {
+            price = uint256(stablecoinPriceBase) * basePrice(key.toId());
+        }
         emit PriceChange(price);
         return price;
     }

@@ -55,6 +55,7 @@ contract StablePairScript is Script, DeployPermit2 {
         vm.broadcast();
         StablePair pair = new StablePair{salt: salt}(manager);
         require(address(pair) == hookAddress, "StablePairScript: hook address mismatch");
+        console.logAddress(hookAddress);
 
         // Additional helpers for interacting with the pool
         vm.startBroadcast();
@@ -103,11 +104,11 @@ contract StablePairScript is Script, DeployPermit2 {
         if (uint160(address(tokenA)) < uint160(address(tokenB))) {
             token0 = MockERC20(address(tokenA));
             token1 = MockERC20(address(tokenB));
-            swapped = true;
+            swapped = false;
         } else {
             token0 = MockERC20(address(tokenB));
             token1 = MockERC20(address(tokenA));
-            swapped = false;
+            swapped = true;
         }
     }
 
@@ -119,14 +120,16 @@ contract StablePairScript is Script, DeployPermit2 {
         PoolSwapTest swapRouter
     ) internal {
         IERC20 usdc = IERC20(0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8);
-        console.logUint(usdc.balanceOf(msg.sender));
+        StablePair pair = StablePair(hook);
         (MockERC20 token0, MockERC20 token1, bool swapped) = deployTokens();
-        if(swapped) {
+        if(!swapped) {
             usdc.approve(address(token1), 10000000000);
             Stablecoin(address(token1)).wrap(10000000000);
+            pair.flipAndLock(false);
         } else {
             usdc.approve(address(token0), 10000000000);
             Stablecoin(address(token0)).wrap(10000000000);
+            pair.flipAndLock(true);
         }
 
         bytes memory ZERO_BYTES = new bytes(0);
@@ -135,12 +138,8 @@ contract StablePairScript is Script, DeployPermit2 {
         int24 tickSpacing = 60;
         PoolKey memory poolKey =
             PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, tickSpacing, IHooks(hook));
-        console.logAddress(address(manager));
+        console.logBytes(abi.encode(poolKey));
         manager.initialize(poolKey, Constants.SQRT_PRICE_1_1);
-
-        // Initialize the oracle
-        StablePair pair = StablePair(hook);
-        // pair.setOracle(address(0xdd6D76262Fd7BdDe428dcfCd94386EbAe0151603));
 
         // approve the tokens to the routers
         token0.approve(address(lpRouter), type(uint256).max);
