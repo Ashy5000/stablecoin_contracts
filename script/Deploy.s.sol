@@ -71,7 +71,7 @@ contract StablePairScript is Script, DeployPermit2 {
     // Helpers
     // -----------------------------------------------------------
     function deployPoolManager() internal returns (IPoolManager) {
-        return IPoolManager(address(new PoolManager()));
+        return IPoolManager(address(0x8C4BcBE6b9eF47855f97E675296FA3F6fafa5F1A));
     }
 
     function deployRouters(IPoolManager manager)
