@@ -84,8 +84,7 @@ contract StablePairScript is Script, DeployPermit2 {
     }
 
     function deployPosm(IPoolManager poolManager) public returns (IPositionManager) {
-        anvilPermit2();
-        return IPositionManager(new PositionManager(poolManager, permit2, 300_000, IPositionDescriptor(address(0))));
+        return IPositionManager(address(0x1B1C77B606d13b09C84d1c7394B96b147bC03147));
     }
 
     function approvePosmCurrency(IPositionManager posm, Currency currency) internal {
